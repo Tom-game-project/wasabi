@@ -1,0 +1,7 @@
+/target
+/mnt
+
+# vim 
+*.swo
+*.swp
+
