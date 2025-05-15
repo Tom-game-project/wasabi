@@ -3,10 +3,10 @@
 #![feature(offset_of)]
 
 use core::mem::offset_of;
+use core::arch::asm;
 use core::mem::size_of;
 use core::ptr::null_mut;
 use core::panic::PanicInfo;
-use core::result;
 use core::slice;
 
 type EfiVoid = u8;
@@ -123,7 +123,10 @@ fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
         *e = 0xffffff
     }
     // println!("Hello, world!");
-    loop {        
+    loop {
+        unsafe{
+            asm!("hlt")
+        }
     }
 }
 
