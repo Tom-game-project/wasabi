@@ -185,13 +185,27 @@ fn init_vram(efi_system_table: &EfiSystemTable) -> Result<VramBufferInfo> {
 #[no_mangle]
 fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
     let mut vram = init_vram(efi_system_table).expect("init vram failed");
-    let vw = vram.width();
-    let vh = vram.height();
 
-    fill_rect(& mut vram, 0x000000, 0, 0, vw, vh);
-    fill_rect(& mut vram, 0xff0000, 0, 0, 32, 32);
-    fill_rect(& mut vram, 0x00ff00, 32, 32, 32, 32);
-    fill_rect(& mut vram, 0x0000ff, 64, 64, 32, 32);
+    let grid_size:i64 = 32;
+    let rect_size:i64 = grid_size * 8;
+
+    let _ = fill_rect(&mut vram, 0xff0000, 0, 0, 32, 32);
+    let _ = fill_rect(&mut vram, 0x00ff00, 32, 32, 32, 32);
+    let _ = fill_rect(&mut vram, 0x0000ff, 64, 64, 32, 32);
+
+
+    for i in (0..rect_size).step_by(grid_size as usize){
+        let _ = draw_line(&mut vram, 0xff0000, 0, i, rect_size, i);
+        let _ = draw_line(&mut vram, 0xff0000, i, 0, i, rect_size);
+    }
+    let cx = rect_size / 2;
+    let cy = rect_size / 2;
+    for i in (0..rect_size).step_by(grid_size as usize){
+        let _ = draw_line(&mut vram, 0xffff00, cx, cy, 0, i);
+        let _ = draw_line(&mut vram, 0x00ffff, cx, cy, i, 0);
+        let _ = draw_line(&mut vram, 0xff00ff, cx, cy, rect_size, i);
+        let _ = draw_line(&mut vram, 0xffffff, cx, cy, i, rect_size);
+    }
 
     // println!("Hello, world!");
     loop {
@@ -247,6 +261,50 @@ fn fill_rect<T: Bitmap>(
     Ok(())
 }
 
+// https://ja.wikipedia.org/wiki/%E3%83%96%E3%83%AC%E3%82%BC%E3%83%B3%E3%83%8F%E3%83%A0%E3%81%AE%E3%82%A2%E3%83%AB%E3%82%B4%E3%83%AA%E3%82%BA%E3%83%A0
+fn draw_line<T: Bitmap>(
+    buf: &mut T,
+    color:u32,
+    mut x0: i64,
+    mut y0: i64,
+    x1:i64,
+    y1:i64,
+) -> Result<()>
+{
+    if !buf.is_in_x_range(x0)
+        || !buf.is_in_x_range(x1)
+        || !buf.is_in_y_range(y0)
+        || !buf.is_in_y_range(y1) 
+    {
+           return Err("Out of range");
+    }
+    let dx = (x1 - x0).abs();
+    let dy = (y1 - y0).abs();
+    let sx = 2 * (if x0 < x1 {1} else {0}) -1;
+    let sy = 2 * (if y0 < y1 {1} else {0}) -1;
+    let mut err = dx - dy;
+
+    loop {
+        unsafe {
+            uncheck_draw_point(buf, color, x0, y0);
+        }
+        if x0 == x1 && y0 == y1
+        {
+            break;
+        }
+        let e2 =2 * err;
+        if e2 > -dy
+        {
+            err -= dy;
+            x0 += sx;
+        }
+        if e2 < dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+    Ok(())
+}
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> !{
