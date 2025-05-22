@@ -185,26 +185,66 @@ fn init_vram(efi_system_table: &EfiSystemTable) -> Result<VramBufferInfo> {
 #[no_mangle]
 fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
     let mut vram = init_vram(efi_system_table).expect("init vram failed");
-    for y in 0..vram.height{
-        for x in 0..vram.width{
-            if let Some(pixel) = vram.pixel_at_mut(x, y){
-                *pixel = 0x00ff00;
-            }
-        }
-    }
-    for y in 0..vram.height / 2{
-        for x in 0..vram.width / 2{
-            if let Some(pixel) = vram.pixel_at_mut(x, y){
-                *pixel = 0x0000ff;
-            }
-        }
-    }
+    let vw = vram.width();
+    let vh = vram.height();
+
+    fill_rect(& mut vram, 0x000000, 0, 0, vw, vh);
+    fill_rect(& mut vram, 0xff0000, 0, 0, 32, 32);
+    fill_rect(& mut vram, 0x00ff00, 32, 32, 32, 32);
+    fill_rect(& mut vram, 0x0000ff, 64, 64, 32, 32);
+
     // println!("Hello, world!");
     loop {
         unsafe{
             asm!("hlt")
         }
     }
+}
+
+
+unsafe fn uncheck_draw_point<T: Bitmap>(
+    buf: &mut T,
+    color: u32,
+    x:i64,
+    y:i64,
+){
+    *buf.uncheck_pixel_at_mut(x, y) = color;
+}
+
+fn draw_point<T: Bitmap>(
+    buf: &mut T,
+    color:u32,
+    x: i64,
+    y: i64,
+) -> Result<()>
+{
+    *(buf.pixel_at_mut(x, y).ok_or("Out of range")?) = color;
+    Ok(())
+}
+
+fn fill_rect<T: Bitmap>(
+    buf: &mut T,
+    color:u32,
+    px:i64,
+    py:i64,
+    w:i64,
+    h:i64,
+) -> Result<()>
+{
+    if !buf.is_in_x_range(px)
+        || !buf.is_in_x_range(px + w - 1)
+        || !buf.is_in_y_range(py)
+        || !buf.is_in_y_range(py + h - 1) {
+           return Err("Out of range");
+    }
+    for y in py..py + h {
+        for x in px..px + w {
+            unsafe {
+                uncheck_draw_point(buf, color, x, y);
+            }
+        }
+    }
+    Ok(())
 }
 
 
