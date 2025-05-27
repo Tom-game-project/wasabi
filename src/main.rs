@@ -8,6 +8,9 @@ use core::cmp::min;
 use core::mem::size_of;
 use core::ptr::null_mut;
 use core::panic::PanicInfo;
+use core::writeln;
+use core::fmt;
+use core::fmt::Write;
 
 type EfiVoid = u8;
 type EfiHandle = u64;
@@ -214,6 +217,10 @@ fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
     for (i, c) in "ABCDEF".chars().enumerate() {
         draw_font_fg(&mut vram, i as i64 * 16 + 256, i as i64 * 16, 0xffffff, c);
     }
+    let mut w = VramTextWriter::new(&mut vram);
+    for i in 0..4 {
+        writeln!(w, "hello {}", i);
+    }
     // println!("Hello, world!");
     loop {
         unsafe{
@@ -360,6 +367,49 @@ fn draw_font_fg<T:Bitmap>(buf: &mut T, x:i64, y:i64, color:u32, c:char)
                 let _ = draw_point(buf, color, x + dx as i64, y + dy as i64);
             }
         }
+    }
+}
+
+
+fn draw_str_fg<T: Bitmap>(buf : &mut T, x:i64, y:i64, color:u32, s: &str)
+{
+    for (i,c) in s.chars().enumerate() {
+        draw_font_fg(buf, x * i as i64 * 8, y, color, c);
+    }
+}
+
+struct VramTextWriter<'a> 
+{
+    vram: &'a mut VramBufferInfo,
+    cursor_x:i64,
+    cursor_y:i64
+}
+
+impl <'a> VramTextWriter<'a>
+{
+    fn new(vram: &'a mut VramBufferInfo) -> Self
+    {
+        Self {
+            vram,
+            cursor_x:0,
+            cursor_y:0,
+        }
+    }
+}
+
+impl fmt::Write for VramTextWriter<'_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        for c in s.chars(){
+            if c == '\n'{
+                self.cursor_x = 0;
+                self.cursor_y += 16;
+            }else
+            {
+                draw_font_fg(self.vram, self.cursor_x, self.cursor_y, 0xffffff, c);
+                self.cursor_x += 8;
+            }
+        }
+        Ok(())
     }
 }
 
