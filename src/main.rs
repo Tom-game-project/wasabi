@@ -8,7 +8,6 @@ use core::cmp::min;
 use core::mem::size_of;
 use core::ptr::null_mut;
 use core::panic::PanicInfo;
-use core::slice;
 
 type EfiVoid = u8;
 type EfiHandle = u64;
@@ -185,6 +184,11 @@ fn init_vram(efi_system_table: &EfiSystemTable) -> Result<VramBufferInfo> {
 #[no_mangle]
 fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
     let mut vram = init_vram(efi_system_table).expect("init vram failed");
+    let vw = vram.width();
+    let vh = vram.height();
+
+    let _ = fill_rect(& mut vram, 0x000000, 0, 0, vw, vh);
+
 
     let grid_size:i64 = 32;
     let rect_size:i64 = grid_size * 8;
@@ -207,6 +211,9 @@ fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
         let _ = draw_line(&mut vram, 0xffffff, cx, cy, i, rect_size);
     }
 
+    for (i, c) in "ABCDEF".chars().enumerate() {
+        draw_font_fg(&mut vram, i as i64 * 16 + 256, i as i64 * 16, 0xffffff, c);
+    }
     // println!("Hello, world!");
     loop {
         unsafe{
@@ -305,6 +312,39 @@ fn draw_line<T: Bitmap>(
     }
     Ok(())
 }
+
+
+fn draw_font_fg<T:Bitmap>(buf: &mut T, x:i64, y:i64, color:u32, c:char)
+{
+    let text_property = "
+........
+...**...
+...**...
+...**...
+...**...
+..*..*..
+..*..*..
+..*..*..
+..*..*..
+.******.
+.*....*.
+.*....*.
+.*....*.
+***..***
+........
+........
+";
+    for (dy, row) in text_property.trim().split('\n').enumerate() {
+        for (dx, pixel) in row.chars().enumerate() {
+            let color = match pixel {
+                '*' => color,
+                _ => continue,
+            };
+            let _ = draw_point(buf, color, x + dx as i64, y + dy as i64);
+        }
+    }
+}
+
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> !{
