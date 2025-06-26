@@ -32,18 +32,6 @@ const EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID: EfiGuid = EfiGuid {
     data3: [0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a]
 };
 
-#[repr(C)]
-struct EfiBootServicesTable
-{
-    _reserved0: [u64; 40],
-    locate_protocol: extern "win64" fn(
-        protocol: *const EfiGuid,
-        registration: *const EfiVoid,
-        interface: *mut *mut EfiVoid
-    ) -> EfiStatus,
-}
-
-
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[must_use]
 #[repr(u64)]
@@ -51,7 +39,131 @@ enum EfiStatus {
     Success = 0,
 }
 
+#[repr(C)]
+struct EfiBootServicesTable
+{
+    _reserved0: [u64; 7],
+    get_memory_map: extern "win64" fn (
+        memory_map_size: *mut usize,
+        memory_map: *mut u8,
+        map_key: *mut usize,
+        descriptor_size: *mut usize,
+        descriptor_version: *mut u32,
+    ) -> EfiStatus,
+    _reserved1: [u64; 32],
+    locate_protocol: extern "win64" fn(
+        protocol: *const EfiGuid,
+        registration: *const EfiVoid,
+        interface: *mut *mut EfiVoid
+    ) -> EfiStatus,
+}
+
+impl EfiBootServicesTable {
+    fn get_memory_map(&self,w: &mut VramTextWriter, map: &mut MemoryMapHolder) -> EfiStatus
+    {
+        //writeln!(w,"{} {} {} {}", map.memory_map_size, map.map_key, map.descriptor_size ,map.descriptor_version).unwrap();
+        //writeln!(w,"{:?}", map.memory_map_buffer).unwrap();
+        let r = (self.get_memory_map)(
+            &mut map.memory_map_size,
+            map.memory_map_buffer.as_mut_ptr(),
+            &mut map.map_key,
+            &mut map.descriptor_size,
+            &mut map.descriptor_version
+        );
+        //writeln!(w,"{} {} {} {}", map.memory_map_size, map.map_key, map.descriptor_size ,map.descriptor_version).unwrap();
+        //writeln!(w,"{:?}", map.memory_map_buffer).unwrap();
+        return r;
+    }
+}
+
+const _: () = assert!(offset_of!(EfiBootServicesTable, get_memory_map) == 56);
 const _: () = assert!(offset_of!(EfiBootServicesTable, locate_protocol) == 320);
+
+const MEMORY_MAP_BUFFER_SIZE:usize = 0x8000;
+
+struct MemoryMapHolder{
+    memory_map_buffer: [u8; MEMORY_MAP_BUFFER_SIZE],
+    memory_map_size:usize,
+    map_key:usize,
+    descriptor_size:usize,
+    descriptor_version:u32,
+}
+
+impl MemoryMapHolder 
+{
+    pub const fn new() -> MemoryMapHolder {
+        MemoryMapHolder { 
+            memory_map_buffer: [0; MEMORY_MAP_BUFFER_SIZE], 
+            memory_map_size: MEMORY_MAP_BUFFER_SIZE , 
+            map_key: 0, 
+            descriptor_size: 0,
+            descriptor_version: 0
+        }
+    }
+
+    pub fn iter(&self) -> MemoryMapIterator
+    {
+        MemoryMapIterator { map: self, ofs: 0 }
+    }
+}
+
+#[repr(i64)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(non_camel_case_types)]
+pub enum EfiMemoryType {
+    RESERVED=0,
+    LOADER_CODE,
+    LOADER_DATA,
+    BOOT_SERVICE_CODE,
+    BOOT_SERVICE_DATA,
+    RUNTIME_SERVICE_CODE,
+    RUNTIME_SERVICE_DATA,
+    CONVENTIONAL_MEMORY,
+    UNUSABLE_MEMORY,
+    ACPI_RECLAIM_MEMORY,
+    ACPI_MEMORY_NVS,
+    MEMORY_MAPED_IO,
+    MEMORY_MAPED_IO_PORT_SPACE,
+    PAL_CODE,
+    PERSISTENT_MEMORY,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct EfiMemoryDescriptor
+{
+    memory_type:EfiMemoryType,
+    phisical_start: u64,
+    virtual_start:u64,
+    number_of_pages:u64,
+    attribute:u64,
+}
+
+struct MemoryMapIterator<'a>
+{
+    map: &'a MemoryMapHolder,
+    ofs: usize
+}
+
+impl<'a> Iterator for MemoryMapIterator<'a> {
+    type Item = &'a EfiMemoryDescriptor;
+
+    fn next(&mut self) -> Option<&'a EfiMemoryDescriptor>{
+        if self.ofs >= self.map.memory_map_size {
+            None
+        } else {
+            let e: &EfiMemoryDescriptor = unsafe {
+                        &*(self.map.memory_map_buffer 
+                            .as_ptr() 
+                            .add(self.ofs) as *const EfiMemoryDescriptor)
+            };
+
+            self.ofs += self.map.descriptor_size;
+            Some(e)
+        }
+    }
+}
+
 
 #[repr(C)]
 struct EfiSystemTable
@@ -95,6 +207,7 @@ struct EfiGraphicsOutputProtocol<'a> {
     reserved: [u64; 3],
     pub mode: &'a EfiGraphicsOutputProtocolMode<'a>
 }
+
 fn locate_graphics_protocol<'a> (efi_system_tabe: &EfiSystemTable) -> Result<&'a EfiGraphicsOutputProtocol> {
     let mut graphic_outout_protocol = null_mut::<EfiGraphicsOutputProtocol>();
     let status = (efi_system_tabe.boot_services.locate_protocol)(&EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID,
@@ -192,7 +305,6 @@ fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
 
     let _ = fill_rect(& mut vram, 0x000000, 0, 0, vw, vh);
 
-
     let grid_size:i64 = 32;
     let rect_size:i64 = grid_size * 8;
 
@@ -219,7 +331,17 @@ fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
     }
     let mut w = VramTextWriter::new(&mut vram);
     for i in 0..4 {
-        writeln!(w, "hello {}", i);
+        writeln!(w, "hello {}", i).unwrap();
+    }
+
+    let mut memory_map = MemoryMapHolder::new();
+
+    let status = efi_system_table
+        .boot_services
+        .get_memory_map(&mut w, &mut memory_map); //memory_mapに値がセットされるはず
+    writeln!(w, "{status:?}").unwrap();
+    for e in memory_map.iter() {
+        writeln!(w, "{e:?}").unwrap();
     }
     // println!("Hello, world!");
     loop {
